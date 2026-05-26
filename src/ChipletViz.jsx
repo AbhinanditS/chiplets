@@ -1,13 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 
-// ─── Topology ─────────────────────────────────────────────────────────────────
-
 const CHIPLETS = [
-  { id: 0, label: "CTR-0", name: "Interconnect", xr: 0.50, yr: 0.20 },
+  { id: 0, label: "CTR-0", name: "Interconnect", xr: 0.50, yr: 0.18 },
   { id: 1, label: "CMP-1", name: "Compute A",    xr: 0.20, yr: 0.48 },
   { id: 2, label: "CMP-2", name: "Compute B",    xr: 0.80, yr: 0.48 },
-  { id: 3, label: "MEM-3", name: "Memory Ctrl",  xr: 0.34, yr: 0.78 },
-  { id: 4, label: "I/O-4", name: "I/O Bridge",   xr: 0.66, yr: 0.78 },
+  { id: 3, label: "MEM-3", name: "Memory Ctrl",  xr: 0.35, yr: 0.80 },
+  { id: 4, label: "I/O-4", name: "I/O Bridge",   xr: 0.65, yr: 0.80 },
 ];
 
 const CONNECTIONS = [
@@ -21,7 +19,7 @@ const CONNECTIONS = [
   { id: "3-4", from: 3, to: 4 },
 ];
 
-const PPC = 5; // particles per connection
+const PPC = 4;
 
 const LOADS = {
   unbalanced: {
@@ -33,8 +31,6 @@ const LOADS = {
     "1-2": 0.44, "1-3": 0.45, "2-4": 0.44, "3-4": 0.43,
   },
 };
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const lerp = (a, b, t) => a + (b - a) * t;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -53,8 +49,6 @@ function rgba([r, g, b], a) {
   return `rgba(${Math.round(r)},${Math.round(g)},${Math.round(b)},${a})`;
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
-
 export default function ChipletViz() {
   const canvasRef = useRef(null);
   const wrapRef = useRef(null);
@@ -62,7 +56,6 @@ export default function ChipletViz() {
   const [pressing, setPressing] = useState(false);
   const vizRef = useRef(null);
 
-  // Lazy-init viz state
   if (!vizRef.current) {
     const particles = [];
     CONNECTIONS.forEach((conn) => {
@@ -98,20 +91,20 @@ export default function ChipletViz() {
     });
   }, []);
 
-  // Canvas animation loop
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     let raf;
     let last = null;
 
-    const CW = 96;
-    const CH = 54;
+    const CW = 130;
+    const CH = 64;
+    const R = 6;
 
     function chipPos(chip) {
       const W = canvas.width;
       const H = canvas.height;
-      const pad = 0.09;
+      const pad = 0.10;
       return {
         x: pad * W + chip.xr * (1 - 2 * pad) * W,
         y: pad * H + chip.yr * (1 - 2 * pad) * H,
@@ -128,7 +121,6 @@ export default function ChipletViz() {
       const W = canvas.width;
       const H = canvas.height;
 
-      // Transition
       if (v.transitioning) {
         v.tT = Math.min(v.tT + dt * 0.75, 1);
         const t = easeInOut(v.tT);
@@ -136,13 +128,9 @@ export default function ChipletViz() {
         CONNECTIONS.forEach(({ id }) => {
           v.loads[id] = lerp(v.srcLoads[id], target[id], t);
         });
-        if (v.tT >= 1) {
-          v.transitioning = false;
-          v.srcLoads = null;
-        }
+        if (v.tT >= 1) { v.transitioning = false; v.srcLoads = null; }
       }
 
-      // Chiplet temperatures
       const acc = CHIPLETS.map(() => ({ s: 0, n: 0 }));
       CONNECTIONS.forEach(({ id, from, to }) => {
         const l = v.loads[id];
@@ -151,31 +139,9 @@ export default function ChipletViz() {
       });
       const temps = CHIPLETS.map((_, i) => (acc[i].n ? acc[i].s / acc[i].n : 0));
 
-      // ── Clear ──
       ctx.clearRect(0, 0, W, H);
       ctx.fillStyle = "#070c12";
       ctx.fillRect(0, 0, W, H);
-
-      // ── Substrate ──
-      const sp = 0.06;
-      const sx = sp * W, sy = sp * H, sw = (1 - 2 * sp) * W, sh = (1 - 2 * sp) * H;
-      ctx.save();
-      ctx.beginPath();
-      ctx.roundRect(sx, sy, sw, sh, 8);
-      ctx.fillStyle = "#0b1520";
-      ctx.fill();
-      ctx.strokeStyle = "rgba(28,52,80,0.9)";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-      ctx.restore();
-
-      // Substrate pads (PCB-style corners)
-      [[sx+14, sy+14],[sx+sw-14, sy+14],[sx+14, sy+sh-14],[sx+sw-14, sy+sh-14]].forEach(([px, py]) => {
-        ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(35,70,110,0.55)"; ctx.fill();
-        ctx.beginPath(); ctx.arc(px, py, 2.5, 0, Math.PI*2);
-        ctx.fillStyle = "rgba(70,130,190,0.45)"; ctx.fill();
-      });
 
       // ── Connection lines ──
       CONNECTIONS.forEach(({ id, from, to }) => {
@@ -183,24 +149,21 @@ export default function ChipletViz() {
         const p1 = chipPos(CHIPLETS[from]);
         const p2 = chipPos(CHIPLETS[to]);
         const rgb = loadRGB(load);
-        const baseAlpha = 0.10 + load * 0.52;
-        const lw = 0.4 + load * 2.2;
+        const lw = 1.0 + load * 2.0;
+
+        // Single glow pass for hot links only
+        if (load > 0.55) {
+          const g = (load - 0.55) / 0.45;
+          ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
+          ctx.strokeStyle = rgba(rgb, g * 0.12); ctx.lineWidth = lw * 7; ctx.stroke();
+        }
 
         ctx.beginPath();
         ctx.moveTo(p1.x, p1.y);
         ctx.lineTo(p2.x, p2.y);
-        ctx.strokeStyle = rgba(rgb, baseAlpha);
+        ctx.strokeStyle = rgba(rgb, 0.15 + load * 0.60);
         ctx.lineWidth = lw;
         ctx.stroke();
-
-        // Hot glow layers
-        if (load > 0.60) {
-          const g = (load - 0.60) / 0.40;
-          ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
-          ctx.strokeStyle = rgba(rgb, g * 0.18); ctx.lineWidth = lw * 6; ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(p1.x, p1.y); ctx.lineTo(p2.x, p2.y);
-          ctx.strokeStyle = rgba(rgb, g * 0.30); ctx.lineWidth = lw * 2.8; ctx.stroke();
-        }
       });
 
       // ── Particles ──
@@ -216,19 +179,9 @@ export default function ChipletViz() {
         const px = lerp(pos1.x, pos2.x, p.progress);
         const py = lerp(pos1.y, pos2.y, p.progress);
         const rgb = loadRGB(load);
-        const size = 1.4 + load * 2.8;
-        const alpha = clamp(0.05 + load * 0.95, 0, 1);
+        const size = 1.5 + load * 2.0;
+        const alpha = clamp(0.15 + load * 0.85, 0, 1);
 
-        // Glow halo on hot particles
-        if (load > 0.45) {
-          const g = ctx.createRadialGradient(px, py, 0, px, py, size * 4.5);
-          g.addColorStop(0, rgba(rgb, (load - 0.45) * 0.45));
-          g.addColorStop(1, rgba(rgb, 0));
-          ctx.beginPath(); ctx.arc(px, py, size * 4.5, 0, Math.PI*2);
-          ctx.fillStyle = g; ctx.fill();
-        }
-
-        // Core dot
         ctx.beginPath();
         ctx.arc(px, py, size, 0, Math.PI * 2);
         ctx.fillStyle = rgba(rgb, alpha);
@@ -243,64 +196,50 @@ export default function ChipletViz() {
         const cy = pos.y - CH / 2;
         const rgb = loadRGB(temp);
 
-        // Glow aura
-        if (temp > 0.22) {
-          const gr = CW * 1.2;
-          const g = ctx.createRadialGradient(pos.x, pos.y, 0, pos.x, pos.y, gr);
-          g.addColorStop(0, rgba(rgb, temp * 0.20));
-          g.addColorStop(1, rgba(rgb, 0));
-          ctx.fillStyle = g;
-          ctx.fillRect(pos.x - gr, pos.y - gr, gr * 2, gr * 2);
-        }
-
-        // Body fill
+        // Body
         ctx.beginPath();
-        ctx.roundRect(cx, cy, CW, CH, 4);
+        ctx.roundRect(cx, cy, CW, CH, R);
         ctx.fillStyle =
-          temp > 0.65 ? "rgba(20,7,4,0.93)"
-          : temp > 0.42 ? "rgba(16,11,3,0.93)"
-          : "rgba(9,16,26,0.93)";
+          temp > 0.65 ? "rgba(22,8,4,0.97)"
+          : temp > 0.42 ? "rgba(16,12,4,0.97)"
+          : "rgba(8,15,26,0.97)";
         ctx.fill();
 
-        // Border
-        ctx.strokeStyle = rgba(rgb, 0.45 + temp * 0.55);
+        // Border — crisp, no blur
+        ctx.strokeStyle = rgba(rgb, 0.55 + temp * 0.45);
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // Subtle top highlight line
+        ctx.beginPath();
+        ctx.moveTo(cx + R, cy + 1);
+        ctx.lineTo(cx + CW - R, cy + 1);
+        ctx.strokeStyle = rgba(rgb, 0.18);
         ctx.lineWidth = 1;
         ctx.stroke();
 
-        // Internal grid lines
-        ctx.strokeStyle = rgba(rgb, 0.06);
-        ctx.lineWidth = 0.5;
-        for (let gx = 1; gx < 4; gx++) {
-          const lx = cx + (CW / 4) * gx;
-          ctx.beginPath(); ctx.moveTo(lx, cy + 4); ctx.lineTo(lx, cy + CH - 4); ctx.stroke();
-        }
-        for (let gy = 1; gy < 3; gy++) {
-          const ly = cy + (CH / 3) * gy;
-          ctx.beginPath(); ctx.moveTo(cx + 4, ly); ctx.lineTo(cx + CW - 4, ly); ctx.stroke();
-        }
-
         // Label
         ctx.textAlign = "center";
-        ctx.font = `bold 10px 'JetBrains Mono', 'Courier New', monospace`;
-        ctx.fillStyle = rgba(rgb, 0.92);
-        ctx.fillText(chip.label, pos.x, cy + 16);
+        ctx.font = `bold 13px 'JetBrains Mono', 'Courier New', monospace`;
+        ctx.fillStyle = rgba(rgb, 0.95);
+        ctx.fillText(chip.label, pos.x, cy + 22);
 
         // Sub-label
-        ctx.font = `7.5px 'JetBrains Mono', 'Courier New', monospace`;
-        ctx.fillStyle = rgba(rgb, 0.44);
-        ctx.fillText(chip.name.toUpperCase(), pos.x, cy + 27);
+        ctx.font = `9px 'JetBrains Mono', 'Courier New', monospace`;
+        ctx.fillStyle = rgba(rgb, 0.50);
+        ctx.fillText(chip.name.toUpperCase(), pos.x, cy + 35);
 
-        // Load bar background
-        const bx = cx + 8, by = cy + CH - 11, bw = CW - 16, bh = 3;
-        ctx.fillStyle = "rgba(255,255,255,0.05)";
+        // Load bar
+        const bx = cx + 12, by = cy + CH - 14, bw = CW - 24, bh = 3;
+        ctx.fillStyle = "rgba(255,255,255,0.07)";
         ctx.fillRect(bx, by, bw, bh);
-        ctx.fillStyle = rgba(rgb, 0.65);
+        ctx.fillStyle = rgba(rgb, 0.80);
         ctx.fillRect(bx, by, bw * temp, bh);
 
-        // Load % text
-        ctx.font = `7px 'JetBrains Mono', 'Courier New', monospace`;
-        ctx.fillStyle = rgba(rgb, 0.55);
-        ctx.fillText(`${Math.round(temp * 100)}%`, pos.x, cy + CH - 1);
+        // Percentage
+        ctx.font = `bold 9px 'JetBrains Mono', 'Courier New', monospace`;
+        ctx.fillStyle = rgba(rgb, 0.70);
+        ctx.fillText(`${Math.round(temp * 100)}%`, pos.x, cy + CH - 2);
       });
 
       raf = requestAnimationFrame(frame);
@@ -310,7 +249,6 @@ export default function ChipletViz() {
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // Resize observer
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
@@ -325,130 +263,78 @@ export default function ChipletViz() {
     return () => ro.disconnect();
   }, []);
 
-  // ── Render ────────────────────────────────────────────────────────────────
-
   const mono = "'JetBrains Mono', 'Courier New', monospace";
 
   return (
     <div style={{
       background: "#070c12",
-      minHeight: "100vh",
+      height: "100vh",
       display: "flex",
       flexDirection: "column",
       fontFamily: mono,
-      color: "#7a9ab8",
       userSelect: "none",
     }}>
+      {/* Canvas fills everything */}
+      <div ref={wrapRef} style={{ flex: 1, overflow: "hidden", position: "relative" }}>
+        <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "100%" }} />
 
-      {/* Header */}
-      <div style={{
-        padding: "14px 24px",
-        borderBottom: "1px solid rgba(28,52,80,0.9)",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        flexShrink: 0,
-      }}>
-        <div>
-          <div style={{ fontSize: 9, color: "rgba(90,130,165,0.55)", letterSpacing: "0.12em", marginBottom: 3 }}>
-            ATHOS SILICON / mSoC VISUALIZATION
-          </div>
-          <div style={{ fontSize: 13, color: "#8aa8c5", fontWeight: 700, letterSpacing: "0.04em" }}>
-            Load Balancer — L3 ↔ L4 Fabric
-          </div>
-        </div>
+        {/* Toggle — floating bottom-center */}
         <div style={{
-          fontSize: 9,
-          letterSpacing: "0.10em",
-          color: balanced ? "rgba(44,190,80,0.75)" : "rgba(210,55,35,0.75)",
+          position: "absolute",
+          bottom: 28,
+          left: "50%",
+          transform: "translateX(-50%)",
           display: "flex",
           alignItems: "center",
-          gap: 8,
+          gap: 14,
         }}>
-          <span style={{
-            width: 6, height: 6, borderRadius: "50%",
-            background: balanced ? "rgba(44,190,80,0.85)" : "rgba(210,55,35,0.85)",
-            display: "inline-block",
-            boxShadow: balanced
-              ? "0 0 6px rgba(44,190,80,0.7)"
-              : "0 0 6px rgba(210,55,35,0.7)",
-          }} />
-          {balanced ? "BALANCED — ALL SYSTEMS NOMINAL" : "IMBALANCED — HOTSPOT DETECTED"}
-        </div>
-      </div>
-
-      {/* Canvas */}
-      <div ref={wrapRef} style={{ flex: 1, overflow: "hidden" }}>
-        <canvas ref={canvasRef} style={{ display: "block", width: "100%", height: "100%" }} />
-      </div>
-
-      {/* Controls */}
-      <div style={{
-        padding: "16px 24px",
-        borderTop: "1px solid rgba(28,52,80,0.9)",
-        display: "flex",
-        alignItems: "center",
-        gap: 24,
-        flexShrink: 0,
-      }}>
-
-        {/* Toggle */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <div
             onClick={toggle}
             onMouseDown={() => setPressing(true)}
             onMouseUp={() => setPressing(false)}
             onMouseLeave={() => setPressing(false)}
             style={{
-              width: 48,
-              height: 26,
-              borderRadius: 13,
-              background: balanced ? "rgba(36,165,72,0.18)" : "rgba(195,48,28,0.18)",
-              border: `1px solid ${balanced ? "rgba(36,165,72,0.55)" : "rgba(195,48,28,0.55)"}`,
+              width: 52,
+              height: 28,
+              borderRadius: 14,
+              background: balanced ? "rgba(36,165,72,0.20)" : "rgba(195,48,28,0.20)",
+              border: `1px solid ${balanced ? "rgba(36,165,72,0.60)" : "rgba(195,48,28,0.60)"}`,
               position: "relative",
               cursor: "pointer",
-              transition: "background 0.25s ease, border-color 0.25s ease",
-              transform: pressing ? "scale(0.97)" : "scale(1)",
+              transition: "background 0.25s, border-color 0.25s",
+              transform: pressing ? "scale(0.96)" : "scale(1)",
+              flexShrink: 0,
             }}
           >
             <div style={{
               position: "absolute",
-              top: 4,
-              left: balanced ? 24 : 4,
+              top: 5,
+              left: balanced ? 26 : 5,
               width: 16,
               height: 16,
               borderRadius: "50%",
               background: balanced ? "rgba(50,190,85,0.95)" : "rgba(210,52,32,0.95)",
-              transition: "left 0.22s ease, background 0.22s ease, box-shadow 0.22s ease",
-              boxShadow: balanced
-                ? "0 0 7px rgba(50,190,85,0.75)"
-                : "0 0 7px rgba(210,52,32,0.75)",
+              transition: "left 0.22s ease, background 0.22s ease",
+              boxShadow: balanced ? "0 0 6px rgba(50,190,85,0.7)" : "0 0 6px rgba(210,52,32,0.7)",
             }} />
           </div>
           <div>
-            <div style={{ fontSize: 10, letterSpacing: "0.08em", color: balanced ? "rgba(50,190,85,0.8)" : "rgba(210,52,32,0.8)" }}>
+            <div style={{
+              fontSize: 11,
+              letterSpacing: "0.09em",
+              color: balanced ? "rgba(50,190,85,0.85)" : "rgba(210,52,32,0.85)",
+            }}>
               LOAD BALANCER {balanced ? "ENABLED" : "DISABLED"}
             </div>
-            <div style={{ fontSize: 8, color: "rgba(80,110,140,0.45)", letterSpacing: "0.06em", marginTop: 2 }}>
-              {balanced ? "Fabric distributing evenly across all chiplets" : "Overload on CTR-0 / CMP-1 / CMP-2"}
+            <div style={{
+              fontSize: 9,
+              color: "rgba(80,110,140,0.50)",
+              letterSpacing: "0.06em",
+              marginTop: 3,
+            }}>
+              {balanced ? "Distributing evenly across all chiplets" : "Overload on CTR-0 / CMP-1 / CMP-2"}
             </div>
           </div>
-        </div>
-
-        {/* Legend */}
-        <div style={{ display: "flex", gap: 18, marginLeft: "auto", alignItems: "center" }}>
-          {[
-            { color: "#1c6ef0", label: "LOW LOAD" },
-            { color: "#ff9f18", label: "MED LOAD" },
-            { color: "#ff2a10", label: "HIGH LOAD" },
-          ].map(({ color, label }) => (
-            <div key={label} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <div style={{ width: 22, height: 2, background: color, borderRadius: 1 }} />
-              <span style={{ fontSize: 8, letterSpacing: "0.09em", color: "rgba(90,120,150,0.5)" }}>
-                {label}
-              </span>
-            </div>
-          ))}
         </div>
       </div>
     </div>
